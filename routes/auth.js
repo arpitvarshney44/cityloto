@@ -6,14 +6,16 @@ const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 
-// Setup Transporter for SMTP (Using Gmail Example)
-const transporter = nodemailer.createTransport({
-    service: 'gmail', // or your SMTP provider
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-    },
-});
+// Setup Helper for SMTP (Can also be moved inside the route if needed)
+const createTransporter = () => {
+    return nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASS,
+        },
+    });
+};
 
 // Register Route
 router.post('/register', async (req, res) => {
@@ -83,10 +85,18 @@ router.post('/forgot-password', async (req, res) => {
                    If you did not request this, please ignore this email.`,
         };
 
+        // Check if SMTP credentials exist before attempting to send
+        if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+            console.error('CRITICAL: Missing EMAIL_USER or EMAIL_PASS in .env file!');
+            return res.status(500).json({ message: 'Mail server configuration missing' });
+        }
+
+        const transporter = createTransporter();
+
         transporter.sendMail(mailOptions, (err) => {
             if (err) {
-                console.error('Mail Error:', err);
-                return res.status(500).json({ message: 'Error sending OTP email' });
+                console.error('Mail Error detailed:', err);
+                return res.status(500).json({ message: 'Error sending OTP email', error: err.message });
             }
             res.status(200).json({ message: 'OTP sent successfully!' });
         });
