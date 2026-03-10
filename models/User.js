@@ -22,8 +22,45 @@ const UserSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    avatar: {
+        type: String,
+        default: ""
+    },
     resetPasswordOTP: String,
     resetPasswordExpires: Date,
+    withdrawalMethods: {
+        bank: {
+            accountHolder: { type: String, default: "" },
+            accountNumber: { type: String, default: "" },
+            ifsc: { type: String, default: "" },
+            bankName: { type: String, default: "" }
+        },
+        upi: {
+            upiId: { type: String, default: "" }
+        },
+        mobile: {
+            paytm: { type: String, default: "" },
+            phonepe: { type: String, default: "" },
+            gpay: { type: String, default: "" }
+        }
+    },
+    referralCode: {
+        type: String,
+        unique: true
+    },
+    referredBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null
+    },
+    referralCount: {
+        type: Number,
+        default: 0
+    },
+    referralEarnings: {
+        type: Number,
+        default: 0
+    },
     createdAt: {
         type: Date,
         default: Date.now

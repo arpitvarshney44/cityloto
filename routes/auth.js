@@ -17,27 +17,67 @@ const createTransporter = () => {
     });
 };
 
+const Transaction = require('../models/Transaction');
+
 // Register Route
 router.post('/register', async (req, res) => {
     try {
-        const { fullName, email, phoneNumber, password } = req.body;
+        const { fullName, email, phoneNumber, password, referralCode } = req.body;
 
         const existingUser = await User.findOne({ email });
         if (existingUser) return res.status(400).json({ message: 'User already exists' });
 
         const hashedPassword = await bcrypt.hash(password, 12);
 
+        // Generate unique referral code for new user
+        const newReferralCode = 'CITY' + Math.random().toString(36).substring(2, 8).toUpperCase();
+
         const newUser = new User({
             fullName,
             email,
             phoneNumber,
-            password: hashedPassword
+            password: hashedPassword,
+            referralCode: newReferralCode
         });
 
+        // Handle referral logic if code provided
+        if (referralCode) {
+            const referrer = await User.findOne({ referralCode: referralCode.toUpperCase() });
+            if (referrer) {
+                newUser.referredBy = referrer._id;
+                // Reward logic: Give bonus to BOTH (e.g. 10 rupees each)
+                newUser.walletBalance += 10;
+                referrer.referralCount += 1;
+                referrer.walletBalance += 10;
+                referrer.referralEarnings += 10;
+
+                // Create Transaction record for Referrer
+                await new Transaction({
+                    userId: referrer._id,
+                    title: `Referral Bonus: ${fullName}`,
+                    amount: 10,
+                    type: 'bonus',
+                    status: 'Success'
+                }).save();
+
+                // Create Transaction record for New User
+                await new Transaction({
+                    userId: newUser._id,
+                    title: `Welcome Bonus (Referral)`,
+                    amount: 10,
+                    type: 'bonus',
+                    status: 'Success'
+                }).save();
+
+                await referrer.save();
+            }
+        }
+
         await newUser.save();
-        res.status(201).json({ message: 'User registered successfully' });
+        res.status(201).json({ message: 'User registered successfully', referralCode: newReferralCode });
 
     } catch (error) {
+        console.error(error);
         res.status(500).json({ message: 'Something went wrong during registration' });
     }
 });
@@ -55,7 +95,20 @@ router.post('/login', async (req, res) => {
 
         const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
 
-        res.status(200).json({ token, user: { id: user._id, fullName: user.fullName, email: user.email, walletBalance: user.walletBalance } });
+        res.status(200).json({
+            token,
+            user: {
+                id: user._id,
+                fullName: user.fullName,
+                email: user.email,
+                phoneNumber: user.phoneNumber,
+                walletBalance: user.walletBalance,
+                avatar: user.avatar,
+                referralCode: user.referralCode,
+                referralCount: user.referralCount,
+                referralEarnings: user.referralEarnings
+            }
+        });
 
     } catch (error) {
         res.status(500).json({ message: 'Server error' });
