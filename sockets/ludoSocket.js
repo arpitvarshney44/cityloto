@@ -60,6 +60,54 @@ async function endGame(roomId, winnerId, resultStr, reason) {
 
 function setupLudoSocket(io) {
     const ludoNamespace = io.of('/ludo');
+    const roomTimers = new Map(); // roomCode -> Interval
+
+    // Periodically check for turn timeouts
+    setInterval(async () => {
+        const activeRooms = GameManager.getAllRoomCodes();
+        for (const roomCode of activeRooms) {
+            try {
+                const game = GameManager.getGame(roomCode);
+                const room = await LudoRoom.findOne({ roomCode, status: 'playing' });
+                
+                if (game && room && room.lastMoveAt) {
+                    const now = new Date();
+                    const secondsPassed = (now - new Date(room.lastMoveAt)) / 1000;
+                    
+                    if (secondsPassed >= 15.5) { // 0.5s buffer
+                        console.log(`[Ludo] Turn timeout for room ${roomCode}, Player ${game.state.chancePlayer}`);
+                        
+                        // Pass turn automatically
+                        game.passTurn();
+                        
+                        // Update DB
+                        room.gameState = game.getState();
+                        room.lastMoveAt = new Date();
+                        await room.save();
+                        
+                        // Broadcast timeout event
+                        ludoNamespace.to(roomCode).emit('turn-timeout', {
+                            state: game.getState(),
+                            previousPlayer: game.state.chancePlayer === 1 ? 3 : 1
+                        });
+                        
+                        // Also sync state
+                        ludoNamespace.to(roomCode).emit('game-state', {
+                            state: game.getState(),
+                            room: {
+                                roomCode: room.roomCode,
+                                player1: room.player1,
+                                player2: room.player2,
+                                status: room.status
+                            }
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error(`Timeout check error for room ${roomCode}:`, err);
+            }
+        }
+    }, 2000); // Check every 2 seconds
 
     ludoNamespace.on('connection', (socket) => {
         console.log(`[Ludo] Client connected: ${socket.id}`);

@@ -43,7 +43,7 @@ class LudoGame {
                 { id: 'D4', pos: 0, travelCount: 0 },
             ],
             chancePlayer: 1, // Red (Player 1) starts
-            diceNo: 1,
+            diceNo: 0,
             isDiceRolled: false,
             pileSelectionPlayer: -1,
             cellSelectionPlayer: -1,
@@ -326,6 +326,7 @@ class LudoGame {
         
         this.state.chancePlayer = nextPlayer;
         this.state.isDiceRolled = false;
+        this.state.diceNo = 0;
         this.state.pileSelectionPlayer = -1;
         this.state.cellSelectionPlayer = -1;
         this.state.touchDiceBlock = false;
