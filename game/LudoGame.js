@@ -107,10 +107,12 @@ class LudoGame {
             }
         }
 
-        if (autoPassTurn) {
-            console.log(`Player ${playerNo} has no valid moves, auto-passing turn`);
-            this.passTurn();
-        }
+        // Don't auto-pass immediately so the player can see the rolled number
+        // The turn will be passed by the socket handler after a delay or by the client acknowledging it.
+        // if (autoPassTurn) {
+        //     console.log(`Player ${playerNo} has no valid moves, auto-passing turn`);
+        //     this.passTurn();
+        // }
 
         return {
             diceNo,
@@ -326,7 +328,8 @@ class LudoGame {
         
         this.state.chancePlayer = nextPlayer;
         this.state.isDiceRolled = false;
-        this.state.diceNo = 0;
+        // Keep last diceNo so it remains visible for the next player
+        // this.state.diceNo = 0;
         this.state.pileSelectionPlayer = -1;
         this.state.cellSelectionPlayer = -1;
         this.state.touchDiceBlock = false;

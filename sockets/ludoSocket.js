@@ -267,6 +267,32 @@ function setupLudoSocket(io) {
                 });
 
                 console.log(`[Ludo] Dice rolled: ${result.diceNo}, canMove: ${result.canMove}, autoPass: ${result.autoPassTurn}`);
+                
+                // If auto-pass is needed, do it with a delay so players can see the result
+                if (result.autoPassTurn) {
+                    setTimeout(async () => {
+                        try {
+                            const currentGame = GameManager.getGame(roomCode);
+                            if (currentGame && currentGame.state.diceNo === result.diceNo && currentGame.state.isDiceRolled) {
+                                currentGame.passTurn();
+                                
+                                // Update DB
+                                await LudoRoom.findOneAndUpdate(
+                                    { roomCode: roomCode.toUpperCase() },
+                                    { $set: { gameState: currentGame.getState(), lastMoveAt: new Date() } }
+                                );
+                                
+                                // Broadcast turn pass
+                                ludoNamespace.to(roomCode).emit('game-state', {
+                                    state: currentGame.getState()
+                                });
+                                console.log(`[Ludo] Auto-passed turn in room ${roomCode} after delay`);
+                            }
+                        } catch (err) {
+                            console.error('[Ludo] Delayed passTurn error:', err);
+                        }
+                    }, 2000);
+                }
 
             } catch (error) {
                 console.error('[Ludo] Roll dice error:', error);
