@@ -179,6 +179,7 @@ const admin = require('../middleware/admin');
 const Slot = require('../models/Slot');
 const Winning = require('../models/Winning');
 const TicTacToeRoom = require('../models/TicTacToeRoom');
+const LudoRoom = require('../models/LudoRoom');
 
 // @route   GET api/user/admin/all-users
 // @desc    Get all users
@@ -251,6 +252,11 @@ router.get('/admin/dashboard', auth, admin, async (req, res) => {
         const tttCommission = tttFinished.reduce((s, g) => s + (g.adminCommission || 0), 0);
         const tttActiveRooms = await TicTacToeRoom.countDocuments({ status: { $in: ['waiting', 'playing'] } });
 
+        // Ludo stats
+        const ludoFinished = await LudoRoom.find({ status: 'finished' });
+        const ludoCommission = ludoFinished.reduce((s, g) => s + (g.adminCommission || 0), 0);
+        const ludoActiveRooms = await LudoRoom.countDocuments({ status: { $in: ['waiting', 'playing'] } });
+
         // Transactions
         const totalTransactions = await Transaction.countDocuments();
         const recentTransactions = await Transaction.find()
@@ -272,7 +278,12 @@ router.get('/admin/dashboard', auth, admin, async (req, res) => {
                 totalCommission: tttCommission,
                 activeRooms: tttActiveRooms,
             },
-            totalCommission: lotteryCommission + tttCommission,
+            ludo: {
+                totalGames: ludoFinished.length,
+                totalCommission: ludoCommission,
+                activeRooms: ludoActiveRooms,
+            },
+            totalCommission: lotteryCommission + tttCommission + ludoCommission,
             transactionCount: totalTransactions,
             recentTransactions,
         });

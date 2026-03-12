@@ -90,7 +90,48 @@ router.post('/create-room', auth, async (req, res) => {
             attempts++;
         } while (await LudoRoom.findOne({ roomCode, status: { $in: ['waiting', 'playing'] } }) && attempts < 10);
 
-        const room = new LudoRoom({ roomCode, player1: req.user.id, betAmount, gameState: { chancePlayer: 1, diceNo: 1, isDiceRolled: false } });
+        const initialGameState = {
+            player1: [
+                { id: 'A1', pos: 0, travelCount: 0 },
+                { id: 'A2', pos: 0, travelCount: 0 },
+                { id: 'A3', pos: 0, travelCount: 0 },
+                { id: 'A4', pos: 0, travelCount: 0 },
+            ],
+            player2: [
+                { id: 'B1', pos: 0, travelCount: 0 },
+                { id: 'B2', pos: 0, travelCount: 0 },
+                { id: 'B3', pos: 0, travelCount: 0 },
+                { id: 'B4', pos: 0, travelCount: 0 },
+            ],
+            player3: [
+                { id: 'C1', pos: 0, travelCount: 0 },
+                { id: 'C2', pos: 0, travelCount: 0 },
+                { id: 'C3', pos: 0, travelCount: 0 },
+                { id: 'C4', pos: 0, travelCount: 0 },
+            ],
+            player4: [
+                { id: 'D1', pos: 0, travelCount: 0 },
+                { id: 'D2', pos: 0, travelCount: 0 },
+                { id: 'D3', pos: 0, travelCount: 0 },
+                { id: 'D4', pos: 0, travelCount: 0 },
+            ],
+            chancePlayer: 1,
+            diceNo: 1,
+            isDiceRolled: false,
+            pileSelectionPlayer: -1,
+            cellSelectionPlayer: -1,
+            touchDiceBlock: false,
+            currentPosition: [],
+            fireworks: false,
+            winner: null
+        };
+
+        const room = new LudoRoom({ 
+            roomCode, 
+            player1: req.user.id, 
+            betAmount, 
+            gameState: initialGameState 
+        });
         await room.save();
 
         await new Transaction({
