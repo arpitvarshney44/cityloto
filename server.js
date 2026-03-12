@@ -6,6 +6,7 @@ const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/user');
 const lotteryRoutes = require('./routes/lottery');
 const tictactoeRoutes = require('./routes/tictactoe');
+const ludoRoutes = require('./routes/ludo');
 
 const app = express();
 
@@ -18,6 +19,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/lottery', lotteryRoutes);
 app.use('/api/tictactoe', tictactoeRoutes);
+app.use('/api/ludo', ludoRoutes);
 
 // Database Connection
 mongoose.connect(process.env.MONGODB_URI)
