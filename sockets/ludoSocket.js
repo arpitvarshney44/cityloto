@@ -88,7 +88,8 @@ function setupLudoSocket(io) {
                         // Broadcast timeout event
                         ludoNamespace.to(roomCode).emit('turn-timeout', {
                             state: game.getState(),
-                            previousPlayer: game.state.chancePlayer === 1 ? 3 : 1
+                            previousPlayer: game.state.chancePlayer === 1 ? 3 : 1,
+                            sound: 'dice_roll' // Subtle notification for turn change
                         });
                         
                         // Also sync state
@@ -249,21 +250,25 @@ function setupLudoSocket(io) {
                 // Server rolls dice and validates
                 const result = game.rollDice(userId);
 
-                // Save state to database
-                await LudoRoom.findOneAndUpdate(
+                // Save state to database and get updated room
+                const room = await LudoRoom.findOneAndUpdate(
                     { roomCode: roomCode.toUpperCase() },
                     { 
                         $set: { gameState: game.getState(), lastMoveAt: new Date() },
                         $inc: { moveCount: 1 }
-                    }
-                );
+                    },
+                    { new: true }
+                ).populate('player1').populate('player2');
 
                 // Broadcast to both players
-                ludoNamespace.to(roomCode).emit('dice-rolled', {
-                    diceNo: result.diceNo,
-                    canMove: result.canMove,
-                    autoPassTurn: result.autoPassTurn,
-                    state: result.state
+                // Broadcast to both players with targeted sound
+                socket.emit('dice-rolled', {
+                    ...result,
+                    sound: 'dice_roll' // Mover hears roll sound
+                });
+                socket.to(roomCode).emit('dice-rolled', {
+                    ...result,
+                    // Opponent hears nothing or a subtle sound (currently nothing)
                 });
 
                 console.log(`[Ludo] Dice rolled: ${result.diceNo}, canMove: ${result.canMove}, autoPass: ${result.autoPassTurn}`);
@@ -284,7 +289,13 @@ function setupLudoSocket(io) {
                                 
                                 // Broadcast turn pass
                                 ludoNamespace.to(roomCode).emit('game-state', {
-                                    state: currentGame.getState()
+                                    state: currentGame.getState(),
+                                    room: {
+                                        roomCode: room.roomCode,
+                                        player1: room.player1,
+                                        player2: room.player2,
+                                        status: room.status
+                                    }
                                 });
                                 console.log(`[Ludo] Auto-passed turn in room ${roomCode} after delay`);
                             }
@@ -330,11 +341,9 @@ function setupLudoSocket(io) {
                 );
 
                 // Broadcast to both players
-                ludoNamespace.to(roomCode).emit('piece-brought-out', {
-                    pieceId,
-                    startPos,
-                    state: result.state
-                });
+                // Broadcast to both players
+                socket.emit('piece-brought-out', { pieceId, startPos, state: result.state, sound: 'pile_move' });
+                socket.to(roomCode).emit('piece-brought-out', { pieceId, startPos, state: result.state });
 
             } catch (error) {
                 console.error('[Ludo] Bring out piece error:', error);
@@ -391,13 +400,16 @@ function setupLudoSocket(io) {
 
                     console.log(`[Ludo] Game ${roomCode} ended, winner: Player ${result.winner}`);
                 } else {
-                    // Broadcast move to both players
-                    ludoNamespace.to(roomCode).emit('piece-moved', {
+                    // Broadcast move with targeted sound
+                    socket.emit('piece-moved', {
                         pieceId,
-                        newPos: result.newPos,
-                        newTravelCount: result.newTravelCount,
-                        collision: result.collision,
-                        state: result.state
+                        ...result,
+                        sound: result.collision ? 'collide' : 'pile_move'
+                    });
+                    socket.to(roomCode).emit('piece-moved', {
+                        pieceId,
+                        ...result,
+                        sound: result.collision ? 'collide' : null // Everyone hears collision
                     });
                 }
 
@@ -449,13 +461,45 @@ function setupLudoSocket(io) {
         });
 
         // Disconnect
-        socket.on('disconnect', () => {
+        socket.on('disconnect', async () => {
             console.log(`[Ludo] Client disconnected: ${socket.id}`);
             
-            if (socket.roomCode) {
-                socket.to(socket.roomCode).emit('player-disconnected', {
-                    playerNo: socket.playerNo
-                });
+            const { roomCode, userId, playerNo } = socket;
+            if (roomCode) {
+                try {
+                    // Check if this was an active game
+                    const room = await LudoRoom.findOne({ roomCode: roomCode.toUpperCase(), status: 'playing' });
+                    
+                    if (room) {
+                        console.log(`[Ludo] Active player ${playerNo} disconnected! Handling as forfeit.`);
+                        
+                        const isPlayer1 = room.player1.toString() === userId;
+                        const winnerId = isPlayer1 ? room.player2 : room.player1;
+                        const resultStr = isPlayer1 ? 'player2' : 'player1';
+                        const winnerNo = isPlayer1 ? 2 : 1;
+
+                        const gameResult = await endGame(room._id, winnerId, resultStr, 'forfeit');
+
+                        // Broadcast forfeit/game-over
+                        ludoNamespace.to(roomCode).emit('game-over', {
+                            winner: winnerNo,
+                            reason: 'disconnect',
+                            forfeitedBy: playerNo,
+                            prizeAmount: gameResult?.prizeAmount || 0,
+                            sound: 'home_win'
+                        });
+
+                        // Remove game from memory
+                        GameManager.removeGame(roomCode);
+                    } else {
+                        // Just notify if it was waiting
+                        socket.to(roomCode).emit('player-disconnected', {
+                            playerNo: playerNo
+                        });
+                    }
+                } catch (err) {
+                    console.error('[Ludo] Disconnect forfeit error:', err);
+                }
             }
         });
     });

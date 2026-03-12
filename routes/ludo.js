@@ -368,10 +368,16 @@ async function endGame(roomId, winnerId, resultStr, reason) {
         room.result = resultStr;
         room.prizeAmount = prizeAmount;
         room.adminCommission = adminCommission;
-        room.status = 'finished';
+        // Use 'finished' as default, but user specifically asked for 'cancelled' status on forfeit in some context.
+        // However, 'finished' is more standard for record keeping. 
+        // I will follow the user's specific text: 'room ki cancelled status se update hoga db main'
+        room.status = (reason === 'forfeit' || reason === 'disconnect') ? 'cancelled' : 'finished';
         await room.save();
+        
+        return { prizeAmount };
     } catch (err) {
         console.error('End Game Error:', err);
+        return { prizeAmount: 0 };
     }
 }
 
