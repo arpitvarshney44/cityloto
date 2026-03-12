@@ -172,4 +172,137 @@ router.put('/withdrawal-methods', auth, async (req, res) => {
     }
 });
 
+// ============================================
+//  ADMIN ROUTES
+// ============================================
+const admin = require('../middleware/admin');
+const Slot = require('../models/Slot');
+const Winning = require('../models/Winning');
+const TicTacToeRoom = require('../models/TicTacToeRoom');
+
+// @route   GET api/user/admin/all-users
+// @desc    Get all users
+// @access  Admin
+router.get('/admin/all-users', auth, admin, async (req, res) => {
+    try {
+        const users = await User.find({ isAdmin: { $ne: true } })
+            .select('-password -resetPasswordOTP -resetPasswordExpires -refreshToken')
+            .sort({ createdAt: -1 });
+        res.json(users);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// @route   PUT api/user/admin/update-user/:id
+// @desc    Update user (balance, admin status, etc.)
+// @access  Admin
+router.put('/admin/update-user/:id', auth, admin, async (req, res) => {
+    try {
+        const { walletBalance, isAdmin, fullName, phoneNumber } = req.body;
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ message: 'User not found' });
+
+        if (walletBalance !== undefined) user.walletBalance = walletBalance;
+        if (isAdmin !== undefined) user.isAdmin = isAdmin;
+        if (fullName) user.fullName = fullName;
+        if (phoneNumber) user.phoneNumber = phoneNumber;
+
+        await user.save();
+
+        // Log if balance was changed
+        if (walletBalance !== undefined) {
+            await new Transaction({
+                userId: user._id,
+                title: `Admin Adjustment`,
+                amount: walletBalance,
+                type: 'bonus',
+                status: 'Success'
+            }).save();
+        }
+
+        res.json({ message: 'User updated', user });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// @route   GET api/user/admin/dashboard
+// @desc    Get platform-wide dashboard stats
+// @access  Admin
+router.get('/admin/dashboard', auth, admin, async (req, res) => {
+    try {
+        const totalUsers = await User.countDocuments({ isAdmin: { $ne: true } });
+        const totalBalanceData = await User.aggregate([
+            { $group: { _id: null, total: { $sum: '$walletBalance' } } }
+        ]);
+        const totalBalance = totalBalanceData.length > 0 ? totalBalanceData[0].total : 0;
+
+        // Lottery stats
+        const lotteryWinnings = await Winning.find();
+        const lotteryCommission = lotteryWinnings.reduce((s, w) => s + (w.adminCommission || 0), 0);
+        const lotteryPrizes = lotteryWinnings.reduce((s, w) => s + (w.totalPrize || 0), 0);
+        const activeSlots = await Slot.countDocuments({ status: 'Active' });
+
+        // TicTacToe stats
+        const tttFinished = await TicTacToeRoom.find({ status: 'finished' });
+        const tttCommission = tttFinished.reduce((s, g) => s + (g.adminCommission || 0), 0);
+        const tttActiveRooms = await TicTacToeRoom.countDocuments({ status: { $in: ['waiting', 'playing'] } });
+
+        // Transactions
+        const totalTransactions = await Transaction.countDocuments();
+        const recentTransactions = await Transaction.find()
+            .populate('userId', 'fullName email')
+            .sort({ createdAt: -1 })
+            .limit(10);
+
+        res.json({
+            totalUsers,
+            totalWalletBalance: totalBalance,
+            lottery: {
+                totalDraws: lotteryWinnings.length,
+                totalCommission: lotteryCommission,
+                totalPrizes: lotteryPrizes,
+                activeSlots,
+            },
+            tictactoe: {
+                totalGames: tttFinished.length,
+                totalCommission: tttCommission,
+                activeRooms: tttActiveRooms,
+            },
+            totalCommission: lotteryCommission + tttCommission,
+            transactionCount: totalTransactions,
+            recentTransactions,
+        });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
+// @route   GET api/user/admin/all-transactions
+// @desc    Get all platform transactions
+// @access  Admin
+router.get('/admin/all-transactions', auth, admin, async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 50;
+        const skip = (page - 1) * limit;
+
+        const total = await Transaction.countDocuments();
+        const transactions = await Transaction.find()
+            .populate('userId', 'fullName email')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit);
+
+        res.json({ transactions, total, page, pages: Math.ceil(total / limit) });
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({ message: 'Server Error' });
+    }
+});
+
 module.exports = router;

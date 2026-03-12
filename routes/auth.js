@@ -5,8 +5,9 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
+const auth = require('../middleware/auth');
 
-// Setup Helper for SMTP (Can also be moved inside the route if needed)
+// Setup Helper for SMTP
 const createTransporter = () => {
     return nodemailer.createTransport({
         service: 'gmail',
@@ -18,6 +19,13 @@ const createTransporter = () => {
 };
 
 const Transaction = require('../models/Transaction');
+
+// Helper: Generate tokens
+const generateTokens = (userId) => {
+    const accessToken = jwt.sign({ id: userId }, process.env.JWT_SECRET, { expiresIn: '1d' });
+    const refreshToken = jwt.sign({ id: userId, type: 'refresh' }, process.env.JWT_SECRET, { expiresIn: '30d' });
+    return { accessToken, refreshToken };
+};
 
 // Register Route
 router.post('/register', async (req, res) => {
@@ -82,7 +90,7 @@ router.post('/register', async (req, res) => {
     }
 });
 
-// Login Route
+// Login Route — now returns both accessToken and refreshToken
 router.post('/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -93,10 +101,15 @@ router.post('/login', async (req, res) => {
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
 
-        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
+        const { accessToken, refreshToken } = generateTokens(user._id);
+
+        // Store refresh token in DB
+        user.refreshToken = refreshToken;
+        await user.save();
 
         res.status(200).json({
-            token,
+            token: accessToken,
+            refreshToken,
             user: {
                 id: user._id,
                 fullName: user.fullName,
@@ -104,6 +117,7 @@ router.post('/login', async (req, res) => {
                 phoneNumber: user.phoneNumber,
                 walletBalance: user.walletBalance,
                 avatar: user.avatar,
+                isAdmin: user.isAdmin,
                 referralCode: user.referralCode,
                 referralCount: user.referralCount,
                 referralEarnings: user.referralEarnings
@@ -111,6 +125,52 @@ router.post('/login', async (req, res) => {
         });
 
     } catch (error) {
+        res.status(500).json({ message: 'Server error' });
+    }
+});
+
+// @route   POST api/auth/refresh-token
+// @desc    Get a new access token using refresh token
+// @access  Public (requires valid refresh token)
+router.post('/refresh-token', async (req, res) => {
+    try {
+        const { refreshToken } = req.body;
+        if (!refreshToken) {
+            return res.status(400).json({ message: 'Refresh token required' });
+        }
+
+        // Verify refresh token
+        let decoded;
+        try {
+            decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+        } catch (jwtErr) {
+            return res.status(401).json({ message: 'Invalid or expired refresh token. Please login again.' });
+        }
+
+        if (decoded.type !== 'refresh') {
+            return res.status(401).json({ message: 'Invalid token type' });
+        }
+
+        // Check if refresh token matches what's stored in DB
+        const user = await User.findById(decoded.id);
+        if (!user || user.refreshToken !== refreshToken) {
+            return res.status(401).json({ message: 'Refresh token revoked. Please login again.' });
+        }
+
+        // Generate new token pair
+        const tokens = generateTokens(user._id);
+
+        // Update stored refresh token (token rotation)
+        user.refreshToken = tokens.refreshToken;
+        await user.save();
+
+        res.json({
+            token: tokens.accessToken,
+            refreshToken: tokens.refreshToken
+        });
+
+    } catch (error) {
+        console.error('Refresh token error:', error);
         res.status(500).json({ message: 'Server error' });
     }
 });
